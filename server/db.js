@@ -12,6 +12,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
     }
 });
 
+
 // Инициализация таблиц
 db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -32,6 +33,13 @@ db.serialize(() => {
         tip TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id)
+    )`);
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT,
+        email TEXT UNIQUE,
+        password TEXT,
+        telegram_chat_id TEXT
     )`);
 });
 

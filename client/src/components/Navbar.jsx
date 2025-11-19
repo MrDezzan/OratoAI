@@ -1,28 +1,49 @@
 import { use } from 'react';
-import { Link } from 'react-router-dom';
-import { Mic } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { Mic, LogOut, LayoutDashboard, History as HistoryIcon } from 'lucide-react';
 import { AuthContext } from '../AuthContext';
 
 const Navbar = () => {
   const { token, setAuth } = use(AuthContext);
+  const location = useLocation();
+  const isActive = (path) => location.pathname === path ? 'active' : '';
 
   return (
     <nav className="navbar">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <Mic color="#6366f1" />
-        <h2 style={{ margin: 0 }}>Orato AI</h2>
-      </div>
-      <div className="nav-links">
+      {/* Логотип теперь всегда ведет на главную */}
+      <Link to="/" className="nav-brand" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <Mic color="var(--primary)" size={28} />
+        <span style={{ background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', color: 'transparent', fontWeight: 'bold', fontSize: '1.5rem' }}>
+          Orato AI
+        </span>
+      </Link>
+      
+      <div className="nav-links" style={{ display: 'flex', alignItems: 'center' }}>
         {token ? (
           <>
-            <Link to="/">Тренировка</Link>
-            <Link to="/history">История</Link>
-            <button onClick={() => setAuth(null)} className="btn" style={{ background: 'transparent', color: '#94a3b8' }}>
-              Выход
+            {/* Ссылка на тренировку */}
+            <Link to="/practice" className={isActive('/practice')} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <LayoutDashboard size={18} /> Тренировка
+            </Link>
+            
+            <Link to="/history" className={isActive('/history')} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <HistoryIcon size={18} /> История
+            </Link>
+            
+            <div style={{ width: '1px', height: '24px', background: 'var(--glass-border)', margin: '0 1.5rem' }}></div>
+            
+            <button 
+              onClick={() => setAuth(null)} 
+              className="btn btn-outline" 
+              style={{ border: '1px solid var(--danger)', color: 'var(--danger)', padding: '0.5rem 1rem', fontSize: '0.8rem' }}
+            >
+              <LogOut size={16} /> Выход
             </button>
           </>
         ) : (
-          <span>Ваш ИИ-коуч</span>
+          <Link to="/auth" className="btn btn-primary" style={{ padding: '0.6rem 1.5rem', marginLeft: '1rem' }}>
+            Войти
+          </Link>
         )}
       </div>
     </nav>

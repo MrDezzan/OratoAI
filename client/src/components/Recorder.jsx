@@ -8,7 +8,7 @@ const Recorder = () => {
   const [analysis, setAnalysis] = useState(null);
   const [timer, setTimer] = useState(0);
   
-  // НОВОЕ СОСТОЯНИЕ: Показывать ли список слов-паразитов
+  // список слов-паразитов
   const [showFillers, setShowFillers] = useState(false);
 
   const [isPending, startTransition] = useTransition();
@@ -123,7 +123,7 @@ const Recorder = () => {
               <div className="metric-label">Слов / Мин</div>
             </div>
 
-            {/* --- ИЗМЕНЕННАЯ КАРТОЧКА СЛОВ-ПАРАЗИТОВ --- */}
+            {/* КАРТОЧКА СЛОВ-ПАРАЗИТОВ  */}
             <div 
               className="metric-card interactive-card" 
               onClick={() => setShowFillers(!showFillers)}
@@ -149,7 +149,7 @@ const Recorder = () => {
                 </div>
               )}
             </div>
-            {/* ------------------------------------------- */}
+            {/* ---------------------- */}
 
           </div>
 

@@ -1,5 +1,5 @@
 /* =========================================
-   1. FONTS & VARIABLES
+   FONTS & VARIABLES
    ========================================= */
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
 
@@ -28,7 +28,7 @@
 }
 
 /* =========================================
-   2. GLOBAL & LAYOUT
+   GLOBAL & LAYOUT
    ========================================= */
 body {
   background-color: var(--bg-dark);
@@ -61,7 +61,7 @@ body {
 .hidden-content { opacity: 0; height: 100vh; overflow: hidden; }
 
 /* =========================================
-   3. TYPOGRAPHY & CARDS
+   TYPOGRAPHY & CARDS
    ========================================= */
 h1, h2, h3 { 
   font-weight: 700; 
@@ -94,7 +94,7 @@ h1 {
 }
 
 /* =========================================
-   4. NAVBAR (Z-Index: 100)
+   NAVBAR
    ========================================= */
 .navbar {
   display: flex;
@@ -124,7 +124,7 @@ h1 {
 }
 
 /* =========================================
-   5. BUTTONS & INPUTS
+   BUTTONS & INPUTS
    ========================================= */
 .btn {
   padding: 0.9rem 2rem;
@@ -186,7 +186,7 @@ input:focus {
 }
 
 /* =========================================
-   6. RECORDER & TRANSCRIPT
+   RECORDER & TRANSCRIPT
    ========================================= */
 .timer-display {
   font-family: var(--font-mono);
@@ -213,7 +213,7 @@ input:focus {
 }
 
 /* =========================================
-   7. RESULTS SECTION (Авто-анализ)
+    RESULTS SECTION
    ========================================= */
 .result-section {
   margin-top: 3rem;
@@ -273,7 +273,7 @@ input:focus {
 .metric-label { font-size: 0.75rem; letter-spacing: 0.1em; color: var(--text-muted); text-transform: uppercase; }
 
 /* =========================================
-   8. HISTORY & MODAL
+   HISTORY & MODAL
    ========================================= */
 .history-table { width: 100%; border-collapse: separate; border-spacing: 0 10px; }
 .history-table th { text-align: left; padding: 1rem; color: var(--text-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.05em; }
@@ -329,7 +329,7 @@ input:focus {
 .modal-close:hover { background: var(--danger); color: white; }
 
 /* =========================================
-   9. INTRO LOADER
+    INTRO LOADER
    ========================================= */
 .intro-loader {
   position: fixed;
@@ -352,7 +352,7 @@ input:focus {
 }
 
 /* =========================================
-   10. ANIMATIONS
+    ANIMATIONS
    ========================================= */
 .fade-in { animation: fadeIn 0.6s ease-out forwards; }
 
@@ -365,7 +365,6 @@ input:focus {
 /* Утилиты */
 .spin { animation: spin 1s linear infinite; }
 
-/* FILLER WORDS INTERACTIVITY */
 
 /* Делаем карточку кликабельной */
 .interactive-card {
@@ -381,7 +380,7 @@ input:focus {
   box-shadow: 0 10px 20px rgba(0,0,0,0.2);
 }
 
-/* Контейнер для списка слов */
+/* список слов */
 .fillers-list {
   margin-top: 1rem;
   padding-top: 1rem;
@@ -393,7 +392,7 @@ input:focus {
   animation: slideDown 0.3s ease-out;
 }
 
-/* Стиль отдельного слова-паразита (тег) */
+/* Стиль */
 .filler-tag {
   background: rgba(244, 63, 94, 0.2);
   color: #fda4af;
@@ -407,4 +406,13 @@ input:focus {
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- адаптация --- */
+@media (max-width: 768px) {
+  h1 { font-size: 2.5rem !important; }
+  .navbar { padding: 1rem; }
+  .nav-links a { margin-left: 1rem; font-size: 0.85rem; }
+  .timer-display { font-size: 3.5rem; }
+  .main-container { padding: 1rem; padding-top: 2rem; }
 }
