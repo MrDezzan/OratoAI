@@ -13,7 +13,7 @@ app.use(cors());
 
 // Инициализация ИИ
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
 //  Middleware аутентификации 
 const authenticateToken = (req, res, next) => {
@@ -82,7 +82,7 @@ app.post('/api/analyze', authenticateToken, async (req, res) => {
         Ты — Orato AI, профессиональный, эмпатичный и строгий тренер по ораторскому мастерству.
         Твоя задача — помочь пользователю улучшить его навыки публичных выступлений.
         
-        Проанализируй следующий текст выступления на русском языке:
+        Проанализируй следующий текст речи на русском языке:
         
         "${transcript}"
         

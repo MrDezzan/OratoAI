@@ -364,3 +364,47 @@ input:focus {
 
 /* Утилиты */
 .spin { animation: spin 1s linear infinite; }
+
+/* FILLER WORDS INTERACTIVITY */
+
+/* Делаем карточку кликабельной */
+.interactive-card {
+  cursor: pointer;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.interactive-card:hover {
+  background: rgba(255, 255, 255, 0.07);
+  transform: translateY(-3px);
+  border-color: var(--primary);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+}
+
+/* Контейнер для списка слов */
+.fillers-list {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  animation: slideDown 0.3s ease-out;
+}
+
+/* Стиль отдельного слова-паразита (тег) */
+.filler-tag {
+  background: rgba(244, 63, 94, 0.2);
+  color: #fda4af;
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  font-family: var(--font-mono);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
