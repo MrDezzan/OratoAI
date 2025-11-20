@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom';
-import { use } from 'react';
+import { useContext, ReactNode } from 'react'; // use -> useContext
 import { AuthContext } from '../AuthContext';
 import { Mic, Zap, Shield, TrendingUp, BrainCircuit, Sparkles } from 'lucide-react';
 
 const Home = () => {
-  const { token } = use(AuthContext);
+  const auth = useContext(AuthContext); // auth может быть null
 
   return (
     <div className="fade-in">
@@ -12,7 +12,7 @@ const Home = () => {
       <div style={{ textAlign: 'center', padding: '4rem 0 6rem' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', background: 'rgba(139, 92, 246, 0.1)', padding: '0.5rem 1rem', borderRadius: '50px', marginBottom: '1.5rem', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
           <Sparkles size={16} color="var(--primary)" />
-          <span style={{ color: 'var(--primary)', fontSize: '0.9rem', fontWeight: 'bold' }}>Powered by Google Gemini 2.0 flash</span>
+          <span style={{ color: 'var(--primary)', fontSize: '0.9rem', fontWeight: 'bold' }}></span>
         </div>
         
         <h1 style={{ fontSize: '4rem', lineHeight: '1.1', marginBottom: '1.5rem' }}>
@@ -29,10 +29,10 @@ const Home = () => {
         </p>
 
         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-          <Link to={token ? "/practice" : "/auth"} className="btn btn-primary" style={{ padding: '1rem 2.5rem', fontSize: '1.1rem' }}>
-            {token ? 'Продолжить тренировку' : 'Начать бесплатно'}
+          <Link to={auth?.token ? "/practice" : "/auth"} className="btn btn-primary" style={{ padding: '1rem 2.5rem', fontSize: '1.1rem' }}>
+            {auth?.token ? 'Продолжить тренировку' : 'Начать бесплатно'}
           </Link>
-          {!token && (
+          {!auth?.token && (
             <Link to="/auth" className="btn btn-outline" style={{ padding: '1rem 2.5rem' }}>
               Войти
             </Link>
@@ -81,16 +81,21 @@ const Home = () => {
         </div>
       </div>
 
-      {/*  FOOTER  */}
       <footer style={{ textAlign: 'center', marginTop: '4rem', padding: '2rem', borderTop: '1px solid var(--glass-border)', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-        <p>© 2025 Orato AI. Развивайте голос будущего. From AITUCAP 2025 Hackatoon</p>
+        <p>© 2025 Orato AI. Развивайте голос будущего. From AITUCAP 2025 Hackathon</p>
       </footer>
     </div>
   );
 };
 
+// Интерфейс пропсов для компонента
+interface FeatureCardProps {
+  icon: ReactNode;
+  title: string;
+  desc: string;
+}
 
-const FeatureCard = ({ icon, title, desc }) => (
+const FeatureCard = ({ icon, title, desc }: FeatureCardProps) => (
   <div className="card" style={{ padding: '2rem', textAlign: 'left', transition: 'transform 0.3s' }}>
     <div style={{ background: 'rgba(255,255,255,0.05)', width: '50px', height: '50px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' }}>
       {icon}

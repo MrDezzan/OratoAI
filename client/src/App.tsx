@@ -1,6 +1,6 @@
-import { useState, useEffect, use } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast'; // <-- ИМПОРТ УВЕДОМЛЕНИЙ
+import { useState, useEffect, useContext, ReactNode } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import Auth from './components/Auth';
 import Recorder from './components/Recorder';
@@ -10,14 +10,29 @@ import IntroLoader from './components/IntroLoader';
 import { AuthProvider, AuthContext } from './AuthContext';
 import './App.css';
 
-const ProtectedRoute = ({ children }) => {
-  const { token } = use(AuthContext);
-  return token ? children : <Navigate to="/auth" replace />;
+// Типизируем пропсы для оберток маршрутов
+interface RouteProps {
+  children: ReactNode;
+}
+
+const ProtectedRoute = ({ children }: RouteProps) => {
+  const auth = useContext(AuthContext);
+  
+  // Если контекст еще не загрузился (теоретически) или токена нет -> редирект
+  if (!auth?.token) {
+    return <Navigate to="/auth" replace />;
+  }
+  return <>{children}</>;
 };
 
-const GuestRoute = ({ children }) => {
-  const { token } = use(AuthContext);
-  return !token ? children : <Navigate to="/practice" replace />;
+const GuestRoute = ({ children }: RouteProps) => {
+  const auth = useContext(AuthContext);
+  
+  // Если токен есть -> редирект на практику
+  if (auth?.token) {
+    return <Navigate to="/practice" replace />;
+  }
+  return <>{children}</>;
 };
 
 const MainLayout = () => {
@@ -32,12 +47,10 @@ const MainLayout = () => {
     <>
       {isLoading && <IntroLoader />}
       
-      {/* --- НАСТРОЙКА КРАСИВЫХ УВЕДОМЛЕНИЙ (Тосты) --- */}
       <Toaster
         position="top-center"
         reverseOrder={false}
         toastOptions={{
-          // Глобальный стиль под "Glassmorphism"
           style: {
             background: 'rgba(30, 41, 59, 0.95)',
             color: '#f8fafc',

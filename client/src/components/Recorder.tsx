@@ -1,33 +1,61 @@
 import { useState, useEffect, useRef, useTransition } from 'react';
 import { Mic, StopCircle, Loader2, CheckCircle2, Sparkles, ChevronDown } from 'lucide-react';
-import toast from 'react-hot-toast'; // <-- ИМПОРТ
-import { analyzeSpeech } from '../api';
+import toast from 'react-hot-toast';
+import { analyzeSpeech, AnalysisData } from '../api'; // Импортируем тип данных
+import { AxiosError } from 'axios';
+
+// --- Типизация Web Speech API ---
+// Так как это экспериментальный API, мы описываем его сами,
+// чтобы TS понимал методы .start(), .stop() и события.
+interface ISpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start: () => void;
+  stop: () => void;
+  onresult: (event: any) => void; // event type is complex, 'any' is acceptable for simple MVP
+  onerror: (event: any) => void;
+}
+
+// Расширяем глобальный объект Window, чтобы TS видел эти свойства
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
 
 const Recorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
-  const [analysis, setAnalysis] = useState(null);
+  // Дженерик указывает: тут либо полные данные анализа, либо null
+  const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [timer, setTimer] = useState(0);
   const [showFillers, setShowFillers] = useState(false);
   
   const [isPending, startTransition] = useTransition();
   
-  const transcriptRef = useRef(''); 
-  const recognitionRef = useRef(null);
-  const intervalRef = useRef(null);
+  // Ссылки
+  const transcriptRef = useRef<string>(''); 
+  const recognitionRef = useRef<ISpeechRecognition | null>(null);
+  // ReturnType<typeof setInterval> универсален для Node и Browser окружения
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'ru-RU';
+      const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognitionCtor();
+      
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'ru-RU';
 
-      recognitionRef.current.onresult = (e) => {
+      recognition.onresult = (e: any) => {
         let finalChunk = '';
         for (let i = e.resultIndex; i < e.results.length; ++i) {
-          if (e.results[i].isFinal) finalChunk += e.results[i][0].transcript + ' ';
+          if (e.results[i].isFinal) {
+            finalChunk += e.results[i][0].transcript + ' ';
+          }
         }
         if (finalChunk) {
           transcriptRef.current += finalChunk;
@@ -35,15 +63,23 @@ const Recorder = () => {
         }
       };
 
-      recognitionRef.current.onerror = (event) => {
+      recognition.onerror = (event: any) => {
         console.error("Speech Error:", event.error);
         if (event.error === 'not-allowed') {
-            toast.error('Доступ к микрофону запрещен! Разрешите его в настройках.'); // <-- ОШИБКА
+            toast.error('Доступ к микрофону запрещен! Разрешите его в настройках.');
         }
       };
+
+      recognitionRef.current = recognition;
     } else {
         toast.error('Ваш браузер не поддерживает распознавание речи 😢');
     }
+
+    // Cleanup при размонтировании
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (recognitionRef.current) try { recognitionRef.current.stop(); } catch {}
+    };
   }, []);
 
   const startRecording = () => {
@@ -55,16 +91,20 @@ const Recorder = () => {
     setIsRecording(true);
     
     try {
-        recognitionRef.current.start();
+        recognitionRef.current?.start();
+        // Таймер
         intervalRef.current = setInterval(() => setTimer(t => t + 1), 1000);
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error(e); 
+    }
   };
 
   const stopRecording = () => {
     setIsRecording(false);
     if (recognitionRef.current) recognitionRef.current.stop();
-    clearInterval(intervalRef.current);
+    if (intervalRef.current) clearInterval(intervalRef.current);
     
+    // Небольшая задержка перед анализом
     setTimeout(() => handleAnalysis(), 1000);
   };
 
@@ -72,7 +112,7 @@ const Recorder = () => {
       const textToAnalyze = transcriptRef.current;
 
       if (!textToAnalyze || textToAnalyze.trim().length === 0) {
-          toast('Я ничего не услышал. Попробуйте громче! 🎤', { icon: '🤔' }); // <-- УВЕДОМЛЕНИЕ
+          toast('Я ничего не услышал. Попробуйте громче! 🎤', { icon: '🤔' });
           return;
       }
 
@@ -80,11 +120,11 @@ const Recorder = () => {
         try {
           const res = await analyzeSpeech(textToAnalyze, timer);
           setAnalysis(res.data);
-          toast.success('Анализ готов! Смотрите ниже 👇'); // <-- УСПЕХ
+          toast.success('Анализ готов! Смотрите ниже 👇');
         } catch (e) {
           console.error(e);
-          // Если сервер прислал конкретную ошибку (например "Нет текста" или "Много слов")
-          const msg = e.response?.data?.error || 'Ошибка связи с сервером ИИ';
+          const axiosError = e as AxiosError<{error: string}>;
+          const msg = axiosError.response?.data?.error || 'Ошибка связи с сервером ИИ';
           toast.error(msg);
         }
       });

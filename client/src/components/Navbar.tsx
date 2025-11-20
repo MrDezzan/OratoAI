@@ -1,16 +1,17 @@
-import { use } from 'react';
+import { useContext } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Mic, LogOut, LayoutDashboard, History as HistoryIcon } from 'lucide-react';
 import { AuthContext } from '../AuthContext';
 
 const Navbar = () => {
-  const { token, setAuth } = use(AuthContext);
+  const auth = useContext(AuthContext);
   const location = useLocation();
-  const isActive = (path) => location.pathname === path ? 'active' : '';
+  
+  // Строгая проверка типов путей
+  const isActive = (path: string) => location.pathname === path ? 'active' : '';
 
   return (
     <nav className="navbar">
-      {/* Логотип теперь всегда ведет на главную */}
       <Link to="/" className="nav-brand" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
         <Mic color="var(--primary)" size={28} />
         <span style={{ background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', color: 'transparent', fontWeight: 'bold', fontSize: '1.5rem' }}>
@@ -19,9 +20,8 @@ const Navbar = () => {
       </Link>
       
       <div className="nav-links" style={{ display: 'flex', alignItems: 'center' }}>
-        {token ? (
+        {auth?.token ? (
           <>
-            {/* Ссылка на тренировку */}
             <Link to="/practice" className={isActive('/practice')} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
               <LayoutDashboard size={18} /> Тренировка
             </Link>
@@ -33,7 +33,7 @@ const Navbar = () => {
             <div style={{ width: '1px', height: '24px', background: 'var(--glass-border)', margin: '0 1.5rem' }}></div>
             
             <button 
-              onClick={() => setAuth(null)} 
+              onClick={() => auth.setAuth(null)} 
               className="btn btn-outline" 
               style={{ border: '1px solid var(--danger)', color: 'var(--danger)', padding: '0.5rem 1rem', fontSize: '0.8rem' }}
             >

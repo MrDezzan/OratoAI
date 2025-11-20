@@ -1,24 +1,38 @@
-import { useState, use } from 'react';
+import { useState, useContext, ChangeEvent, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { registerInit, loginInit, verifyCode } from '../api';
+import { registerInit, loginInit, verifyCode, RegisterRequest } from '../api'; // Импорт типизированных запросов
 import { AuthContext } from '../AuthContext';
 import { Loader2, ShieldCheck, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { AxiosError } from 'axios'; // Для типизации ошибок запроса
+
+// Тип ответа с ошибкой (от нашего Go-сервера)
+interface ErrorResponse {
+  error: string;
+}
 
 const Auth = () => {
-  const { setAuth } = use(AuthContext);
+  // useContext(AuthContext) может вернуть null, поэтому проверяем или делаем cast
+  const auth = useContext(AuthContext);
+  const setAuth = auth?.setAuth || (() => {}); // Fallback если вдруг null
+  
   const navigate = useNavigate();
   
   const [isLogin, setIsLogin] = useState(true);
-  const [step, setStep] = useState('INIT');
+  const [step, setStep] = useState<'INIT' | 'VERIFY'>('INIT'); // Enum строк
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
-  const [formData, setFormData] = useState({ username: '', email: '', password: '', telegramId: '' });
+  const [formData, setFormData] = useState<RegisterRequest>({ 
+    username: '', 
+    email: '', 
+    password: '', 
+    telegramId: '' 
+  });
   const [otp, setOtp] = useState('');
 
-  // Шкала пароля
-  const getPasswordStrength = (pass) => {
+  // Шкала пароля (аргумент pass - строка)
+  const getPasswordStrength = (pass: string) => {
     let score = 0;
     if (!pass) return 0;
     if (pass.length > 5) score += 1;
@@ -33,9 +47,13 @@ const Auth = () => {
   const strengthColor = ['#334155', '#ef4444', '#f97316', '#eab308', '#84cc16', '#10b981'];
   const strengthLabel = ['-', 'Слабый', 'Средний', 'Нормальный', 'Хороший', 'Отличный'];
 
-  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+  // Типизация события input
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
 
-  const handleInitSubmit = async (e) => {
+  // Типизация отправки формы
+  const handleInitSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
@@ -43,6 +61,8 @@ const Auth = () => {
     try {
       if (isLogin) {
         const res = await loginInit({ email: formData.email, password: formData.password });
+        
+        // res.data уже типизировано! (AuthResponse)
         if (res.data.token) {
             setAuth(res.data.token);
             toast.success('С возвращением! 👋');
@@ -56,7 +76,9 @@ const Auth = () => {
       toast.success('Код отправлен в Telegram ✈️');
       setStep('VERIFY');
     } catch (err) {
-      const msg = err.response?.data?.error || 'Ошибка сервера';
+      const axiosError = err as AxiosError<ErrorResponse>;
+      // TypeScript знает, что внутри data может быть { error: string }
+      const msg = axiosError.response?.data?.error || 'Ошибка сервера';
       setError(msg);
       toast.error(msg);
     } finally {
@@ -64,7 +86,7 @@ const Auth = () => {
     }
   };
 
-  const handleVerifySubmit = async (e) => {
+  const handleVerifySubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
@@ -73,18 +95,22 @@ const Auth = () => {
       const res = await verifyCode({ email: formData.email, code: otp });
       
       if (isLogin) {
-        setAuth(res.data.token);
-        toast.success('Вход выполнен успешно! 🚀');
-        navigate('/practice');
+        if (res.data.token) {
+          setAuth(res.data.token);
+          toast.success('Вход выполнен успешно! 🚀');
+          navigate('/practice');
+        }
       } else {
         toast.success('Регистрация завершена! 🎉 Теперь войдите.');
         setIsLogin(true);
         setStep('INIT');
         setOtp('');
-        setFormData({ ...formData, password: '' });
+        // Сброс пароля в форме
+        setFormData(prev => ({ ...prev, password: '' }));
       }
     } catch (err) {
-      const msg = err.response?.data?.error || 'Неверный код';
+      const axiosError = err as AxiosError<ErrorResponse>;
+      const msg = axiosError.response?.data?.error || 'Неверный код';
       setError(msg);
       toast.error(msg + ' ❌');
     } finally {
