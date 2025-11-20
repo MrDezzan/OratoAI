@@ -1,23 +1,21 @@
 import { useState, useEffect, useRef, useTransition } from 'react';
-import { Mic, StopCircle, Loader2, CheckCircle2, Sparkles, ChevronDown } from 'lucide-react';
+// Добавляем иконки Dices (Кубики) и Refresh (Обновить)
+import { Mic, StopCircle, Loader2, CheckCircle2, Sparkles, ChevronDown, Dices } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { analyzeSpeech, AnalysisData } from '../api'; // Импортируем тип данных
+import { analyzeSpeech, AnalysisData } from '../api';
 import { AxiosError } from 'axios';
+import { TOPICS } from '../topics'; // <-- ИМПОРТИРУЕМ ТЕМЫ
 
-// --- Типизация Web Speech API ---
-// Так как это экспериментальный API, мы описываем его сами,
-// чтобы TS понимал методы .start(), .stop() и события.
 interface ISpeechRecognition extends EventTarget {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
   start: () => void;
   stop: () => void;
-  onresult: (event: any) => void; // event type is complex, 'any' is acceptable for simple MVP
+  onresult: (event: any) => void; 
   onerror: (event: any) => void;
 }
 
-// Расширяем глобальный объект Window, чтобы TS видел эти свойства
 declare global {
   interface Window {
     SpeechRecognition: any;
@@ -28,24 +26,31 @@ declare global {
 const Recorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
-  // Дженерик указывает: тут либо полные данные анализа, либо null
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [timer, setTimer] = useState(0);
   const [showFillers, setShowFillers] = useState(false);
   
-  const [isPending, startTransition] = useTransition();
+  // --- НОВЫЙ СТЕЙТ ДЛЯ ТЕМЫ ---
+  const [currentTopic, setCurrentTopic] = useState<string | null>(null);
   
-  // Ссылки
+  const [isPending, startTransition] = useTransition();
   const transcriptRef = useRef<string>(''); 
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
-  // ReturnType<typeof setInterval> универсален для Node и Browser окружения
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // --- НОВАЯ ФУНКЦИЯ: Генератор ---
+  const generateTopic = () => {
+    const random = TOPICS[Math.floor(Math.random() * TOPICS.length)];
+    setCurrentTopic(random);
+    // Если уже есть анализ, сбрасываем его, чтобы начать новую тренировку
+    if (analysis) setAnalysis(null); 
+    setTranscript('');
+  };
 
   useEffect(() => {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
       const recognition = new SpeechRecognitionCtor();
-      
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = 'ru-RU';
@@ -53,9 +58,7 @@ const Recorder = () => {
       recognition.onresult = (e: any) => {
         let finalChunk = '';
         for (let i = e.resultIndex; i < e.results.length; ++i) {
-          if (e.results[i].isFinal) {
-            finalChunk += e.results[i][0].transcript + ' ';
-          }
+          if (e.results[i].isFinal) finalChunk += e.results[i][0].transcript + ' ';
         }
         if (finalChunk) {
           transcriptRef.current += finalChunk;
@@ -66,16 +69,14 @@ const Recorder = () => {
       recognition.onerror = (event: any) => {
         console.error("Speech Error:", event.error);
         if (event.error === 'not-allowed') {
-            toast.error('Доступ к микрофону запрещен! Разрешите его в настройках.');
+            toast.error('Доступ к микрофону запрещен!');
         }
       };
-
       recognitionRef.current = recognition;
     } else {
-        toast.error('Ваш браузер не поддерживает распознавание речи 😢');
+        toast.error('Ваш браузер не поддерживает Speech API 😢');
     }
 
-    // Cleanup при размонтировании
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (recognitionRef.current) try { recognitionRef.current.stop(); } catch {}
@@ -89,42 +90,34 @@ const Recorder = () => {
     setTimer(0);
     setShowFillers(false);
     setIsRecording(true);
-    
     try {
         recognitionRef.current?.start();
-        // Таймер
         intervalRef.current = setInterval(() => setTimer(t => t + 1), 1000);
-    } catch (e) { 
-      console.error(e); 
-    }
+    } catch (e) { console.error(e); }
   };
 
   const stopRecording = () => {
     setIsRecording(false);
     if (recognitionRef.current) recognitionRef.current.stop();
     if (intervalRef.current) clearInterval(intervalRef.current);
-    
-    // Небольшая задержка перед анализом
     setTimeout(() => handleAnalysis(), 1000);
   };
 
   const handleAnalysis = () => {
       const textToAnalyze = transcriptRef.current;
-
       if (!textToAnalyze || textToAnalyze.trim().length === 0) {
           toast('Я ничего не услышал. Попробуйте громче! 🎤', { icon: '🤔' });
           return;
       }
-
       startTransition(async () => {
         try {
           const res = await analyzeSpeech(textToAnalyze, timer);
           setAnalysis(res.data);
-          toast.success('Анализ готов! Смотрите ниже 👇');
+          toast.success('Анализ готов!');
         } catch (e) {
           console.error(e);
           const axiosError = e as AxiosError<{error: string}>;
-          const msg = axiosError.response?.data?.error || 'Ошибка связи с сервером ИИ';
+          const msg = axiosError.response?.data?.error || 'Ошибка ИИ';
           toast.error(msg);
         }
       });
@@ -134,7 +127,31 @@ const Recorder = () => {
     <div className="fade-in">
       <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
         <h1>Тренировка Речи</h1>
-        <p style={{ color: 'var(--text-muted)' }}>Говорите свободно. Анализ запустится автоматически.</p>
+        <p style={{ color: 'var(--text-muted)' }}>
+            Нажмите кнопку ниже, чтобы получить случайную тему, или говорите свободно.
+        </p>
+        
+        {/* --- НОВАЯ КНОПКА ГЕНЕРАЦИИ --- */}
+        <div style={{ marginTop: '1.5rem' }}>
+            {currentTopic ? (
+                <div className="card" style={{ display: 'inline-flex', flexDirection: 'column', padding: '1.5rem', maxWidth: '600px', animation: 'fadeIn 0.5s' }}>
+                    <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '2px', color: 'var(--primary)', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                        Тема выступления
+                    </span>
+                    <span style={{ fontSize: '1.4rem', lineHeight: '1.4', fontWeight: '500' }}>
+                        {currentTopic}
+                    </span>
+                    <button onClick={generateTopic} style={{ marginTop: '1rem', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.9rem', display:'flex', alignItems:'center', justifyContent:'center', gap:'5px' }}>
+                        <Dices size={16} /> Другая тема
+                    </button>
+                </div>
+            ) : (
+                <button onClick={generateTopic} className="btn btn-outline">
+                    <Dices size={18} /> Генерировать тему
+                </button>
+            )}
+        </div>
+
       </div>
 
       <div className="card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
@@ -178,11 +195,7 @@ const Recorder = () => {
               <div className="metric-label">Слов / Мин</div>
             </div>
 
-            <div 
-              className="metric-card interactive-card" 
-              onClick={() => setShowFillers(!showFillers)}
-              title="Нажмите, чтобы увидеть список"
-            >
+            <div className="metric-card interactive-card" onClick={() => setShowFillers(!showFillers)}>
               <div className="metric-val" style={{ color: analysis.fillerWords.length > 0 ? 'var(--danger)' : 'var(--success)' }}>
                 {analysis.fillerWords.length}
               </div>

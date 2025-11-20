@@ -374,17 +374,54 @@ func handleAnalyze(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCompanion(w http.ResponseWriter, r *http.Request) {
-	var req struct{ Message string `json:"message"` }
-	json.NewDecoder(r.Body).Decode(&req)
+	var req struct {
+		Message string `json:"message"`
+		Mode    string `json:"mode"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, "Invalid JSON", 400)
+		return
+	}
 
 	ctx := context.Background()
-	prompt := fmt.Sprintf("Role: Anime girl Ai. Reply cute & short in Russian. User: \"%s\"", req.Message)
+	var rolePrompt string
+
+	switch req.Mode {
+	case "interview":
+		rolePrompt = `Роль: Строгий HR-менеджер на собеседовании.
+		Тон: Официальный, сухой, профессиональный.
+		Задача: Проверь кандидата на стрессоустойчивость. Не хвали, задавай каверзные вопросы по существу.`
+		gemini.SetTemperature(0.4) 
+	case "debate":
+		rolePrompt = `Роль: Оппонент в дебатах.
+		Тон: Критический, напористый, логичный.
+		Задача: Не соглашайся с пользователем. Найди ошибку в его аргументах и контратакуй. Твоя цель — победить в споре.`
+		gemini.SetTemperature(0.8) 
+	default: 
+		rolePrompt = `Роль: Добрый тренер по ораторскому мастерству.
+		Тон: Дружелюбный, мягкий, поддерживающий.
+		Задача: Поддержи диалог, похвали за хорошие мысли и мягко предложи улучшения.`
+		gemini.SetTemperature(0.7)
+	}
+
+	prompt := fmt.Sprintf(`
+		%s
+		Язык: Русский.
+		Инструкция: Ответь на реплику пользователя.
+		Ограничение: Ответ должен быть КРАТКИМ (1-3 предложения) и БЕЗ Markdown (без звездочек ** и решеток #), чтобы это легко читалось вслух.
+
+		Пользователь сказал: "%s"`, rolePrompt, req.Message)
 
 	resp, err := gemini.GenerateContent(ctx, genai.Text(prompt))
 	if err == nil && len(resp.Candidates) > 0 {
-		txt := fmt.Sprintf("%s", resp.Candidates[0].Content.Parts[0])
-		jsonResponse(w, map[string]string{"reply": txt})
-		return
+		if part, ok := resp.Candidates[0].Content.Parts[0].(genai.Text); ok {
+			txt := string(part)
+			txt = strings.ReplaceAll(txt, "*", "")
+
+			jsonResponse(w, map[string]string{"reply": txt})
+			return
+		}
 	}
 	httpError(w, "AI Error", 500)
 }

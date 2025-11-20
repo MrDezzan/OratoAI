@@ -1,13 +1,12 @@
 import { useContext } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Mic, LogOut, LayoutDashboard, History as HistoryIcon } from 'lucide-react';
+import { Mic, LogOut, LayoutDashboard, History as HistoryIcon, AudioWaveform } from 'lucide-react'; // AudioWaveform иконка
 import { AuthContext } from '../AuthContext';
 
 const Navbar = () => {
   const auth = useContext(AuthContext);
   const location = useLocation();
   
-  // Строгая проверка типов путей
   const isActive = (path: string) => location.pathname === path ? 'active' : '';
 
   return (
@@ -23,7 +22,12 @@ const Navbar = () => {
         {auth?.token ? (
           <>
             <Link to="/practice" className={isActive('/practice')} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <LayoutDashboard size={18} /> Тренировка
+              <LayoutDashboard size={18} /> Практика
+            </Link>
+            
+            {/* Кнопка для нового режима */}
+            <Link to="/companion" className={isActive('/companion')} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <AudioWaveform size={18} /> Live Тренер
             </Link>
             
             <Link to="/history" className={isActive('/history')} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>

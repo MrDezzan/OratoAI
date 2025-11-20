@@ -95,6 +95,6 @@ export const clearHistory = async () => {
   return api.delete<{ msg: string }>('/history');
 };
 
-export const chatWithCompanion = async (message: string) => {
-  return api.post<CompanionResponse>('/companion/chat', { message });
+export const chatWithCompanion = async (message: string, mode: string = 'mentor') => {
+  return api.post<CompanionResponse>('/companion/chat', { message, mode });
 };

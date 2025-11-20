@@ -1,12 +1,14 @@
 import { useState, useEffect, useContext, ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import { Toaster } from 'react-hot-toast'; 
 import Navbar from './components/Navbar';
 import Auth from './components/Auth';
 import Recorder from './components/Recorder';
 import History from './components/History';
 import Home from './components/Home';
 import IntroLoader from './components/IntroLoader';
+// Импортируем новый компонент
+import LiveTrainer from './components/LiveTrainer';
 import { AuthProvider, AuthContext } from './AuthContext';
 import './App.css';
 
@@ -18,7 +20,7 @@ interface RouteProps {
 const ProtectedRoute = ({ children }: RouteProps) => {
   const auth = useContext(AuthContext);
   
-  // Если контекст еще не загрузился (теоретически) или токена нет -> редирект
+  // Если контекст еще не загрузился или токена нет -> редирект
   if (!auth?.token) {
     return <Navigate to="/auth" replace />;
   }
@@ -39,6 +41,7 @@ const MainLayout = () => {
   const [isLoading, setIsLoading] = useState(true);
   
   useEffect(() => {
+    // Имитация загрузки приложения
     const t = setTimeout(() => setIsLoading(false), 2200);
     return () => clearTimeout(t);
   }, []);
@@ -47,10 +50,12 @@ const MainLayout = () => {
     <>
       {isLoading && <IntroLoader />}
       
+      {/* --- НАСТРОЙКА УВЕДОМЛЕНИЙ (Тосты) --- */}
       <Toaster
         position="top-center"
         reverseOrder={false}
         toastOptions={{
+          // Глобальный стиль под "Glassmorphism"
           style: {
             background: 'rgba(30, 41, 59, 0.95)',
             color: '#f8fafc',
@@ -80,6 +85,10 @@ const MainLayout = () => {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/practice" element={<ProtectedRoute><Recorder /></ProtectedRoute>} />
+            
+            {/* --- НОВЫЙ МАРШРУТ ДЛЯ ЖИВОГО ТРЕНЕРА --- */}
+            <Route path="/companion" element={<ProtectedRoute><LiveTrainer /></ProtectedRoute>} />
+            
             <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/auth" element={<GuestRoute><Auth /></GuestRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />
