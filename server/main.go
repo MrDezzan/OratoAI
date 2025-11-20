@@ -10,21 +10,21 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
-	"google.golang.org/api/iterator"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/generative-ai-go/genai"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/rs/cors"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/api/option"
+	_ "modernc.org/sqlite"
 )
 
 var (
@@ -32,8 +32,8 @@ var (
 	db        *sql.DB
 	bot       *tgbotapi.BotAPI
 	gemini    *genai.GenerativeModel
-	otpStore = make(map[string]*OtpSession)
-	otpMutex sync.Mutex
+	otpStore  = make(map[string]*OtpSession)
+	otpMutex  sync.Mutex
 )
 
 type OtpSession struct {
@@ -94,7 +94,7 @@ func main() {
 
 func initDB() {
 	var err error
-	db, err = sql.Open("sqlite3", "./orato.db")
+	db, err = sql.Open("sqlite", "./orato.db")
 	if err != nil {
 		log.Fatal("[!] DB Connection Error:", err)
 	}
@@ -145,7 +145,9 @@ func initTelegram() {
 			for update := range updates {
 				if update.Message != nil && update.Message.Text == "/start" {
 					chatId := update.Message.Chat.ID
-					msg := tgbotapi.NewMessage(chatId, fmt.Sprintf("ID: %d", chatId))
+					firstName := update.Message.From.FirstName
+					text := fmt.Sprintf("👋 Привет, %s!\n\nТвой Telegram Chat ID: %d\n\nСкопируй эти цифры и вставь их при регистрации на сайте Orato AI.", firstName, chatId)
+					msg := tgbotapi.NewMessage(chatId, text)
 					bot.Send(msg)
 					fmt.Printf("[*] User interaction: %d\n", chatId)
 				}
@@ -166,52 +168,9 @@ func initGemini() {
 		log.Fatal("[!] Gemini Client Error:", err)
 	}
 
-	fmt.Println("[*] Scanning available models...")
-	iter := client.ListModels(ctx)
-
-	var bestModel string
-	priorities := []string{"gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"}
-
-	for {
-		m, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		supportsContent := false
-		for _, method := range m.SupportedGenerationMethods {
-			if method == "generateContent" {
-				supportsContent = true
-				break
-			}
-		}
-
-		if supportsContent {
-			name := strings.TrimPrefix(m.Name, "models/")
-			for _, p := range priorities {
-				if strings.Contains(name, p) {
-					bestModel = name
-					if strings.Contains(name, "flash") {
-						break
-					}
-				}
-			}
-		}
-		if bestModel != "" && strings.Contains(bestModel, "flash") {
-			break
-		}
-	}
-
-	if bestModel == "" {
-		fmt.Println("[!] No preferred model found. Defaulting to 'gemini-pro'.")
-		bestModel = "gemini-pro"
-	}
-
-	fmt.Printf("[+] Connected to model: %s\n", bestModel)
-	gemini = client.GenerativeModel(bestModel)
+	modelName := "gemini-2.0-flash"
+	fmt.Printf("[+] Connected to model: %s\n", modelName)
+	gemini = client.GenerativeModel(modelName)
 
 	gemini.SafetySettings = []*genai.SafetySetting{
 		{Category: genai.HarmCategoryHarassment, Threshold: genai.HarmBlockNone},
@@ -219,7 +178,7 @@ func initGemini() {
 		{Category: genai.HarmCategorySexuallyExplicit, Threshold: genai.HarmBlockNone},
 		{Category: genai.HarmCategoryDangerousContent, Threshold: genai.HarmBlockNone},
 	}
-	gemini.SetTemperature(0.4)
+	gemini.SetTemperature(0.7)
 }
 
 func handleRegisterInit(w http.ResponseWriter, r *http.Request) {
@@ -231,11 +190,11 @@ func handleRegisterInit(w http.ResponseWriter, r *http.Request) {
 
 	var dummy int
 	if db.QueryRow("SELECT 1 FROM users WHERE email = ?", req.Email).Scan(&dummy) == nil {
-		httpError(w, "Email already exists", 400)
+		httpError(w, "Email уже занят", 400)
 		return
 	}
 
-	code := fmt.Sprintf("%06d", rand.Intn(1000000))
+	code := fmt.Sprintf("%d", 100000+rand.Intn(900000))
 
 	chatID, err := strconv.ParseInt(req.TelegramID, 10, 64)
 	if err != nil || chatID == 0 {
@@ -243,9 +202,9 @@ func handleRegisterInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !sendTg(chatID, "Auth Code: "+code) {
+	if !sendTg(chatID, code, "регистрации") {
 		fmt.Printf("[!] Failed to send code to TG: %d\n", chatID)
-		httpError(w, "Bot failed to send message", 400)
+		httpError(w, "Бот не смог отправить сообщение. Напишите /start боту!", 400)
 		return
 	}
 
@@ -261,7 +220,7 @@ func handleRegisterInit(w http.ResponseWriter, r *http.Request) {
 	}
 	otpMutex.Unlock()
 
-	jsonResponse(w, map[string]string{"message": "Code sent", "step": "VERIFY"})
+	jsonResponse(w, map[string]string{"message": "Код отправлен в Telegram", "step": "VERIFY"})
 }
 
 func handleLoginInit(w http.ResponseWriter, r *http.Request) {
@@ -275,7 +234,7 @@ func handleLoginInit(w http.ResponseWriter, r *http.Request) {
 		Scan(&id, &username, &userHash, &tgIDStr)
 
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(userHash), []byte(req.Password)) != nil {
-		httpError(w, "Invalid credentials", 400)
+		httpError(w, "Неверный логин или пароль", 400)
 		return
 	}
 
@@ -285,12 +244,12 @@ func handleLoginInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code := fmt.Sprintf("%06d", rand.Intn(1000000))
+	code := fmt.Sprintf("%d", 100000+rand.Intn(900000))
 	chatID, _ := strconv.ParseInt(tgIDStr, 10, 64)
 
-	if !sendTg(chatID, "Auth Code: "+code) {
+	if !sendTg(chatID, code, "входа") {
 		fmt.Printf("[!] Failed to send code to TG: %d\n", chatID)
-		httpError(w, "Telegram Error", 500)
+		httpError(w, "Ошибка связи с Telegram", 500)
 		return
 	}
 
@@ -304,7 +263,7 @@ func handleLoginInit(w http.ResponseWriter, r *http.Request) {
 	}
 	otpMutex.Unlock()
 
-	jsonResponse(w, map[string]string{"message": "Code sent", "step": "VERIFY"})
+	jsonResponse(w, map[string]string{"message": "Код отправлен", "step": "VERIFY"})
 }
 
 func handleVerify(w http.ResponseWriter, r *http.Request) {
@@ -315,7 +274,7 @@ func handleVerify(w http.ResponseWriter, r *http.Request) {
 	session, ok := otpStore[req.Email]
 	if !ok {
 		otpMutex.Unlock()
-		httpError(w, "Session not found", 400)
+		httpError(w, "Код истек", 400)
 		return
 	}
 
@@ -323,9 +282,12 @@ func handleVerify(w http.ResponseWriter, r *http.Request) {
 		session.Attempts++
 		if session.Attempts > 3 {
 			delete(otpStore, req.Email)
+			otpMutex.Unlock()
+			httpError(w, "Много попыток. Повторите вход.", 400)
+			return
 		}
 		otpMutex.Unlock()
-		httpError(w, "Invalid code", 400)
+		httpError(w, "Неверный код", 400)
 		return
 	}
 	delete(otpStore, req.Email)
@@ -335,7 +297,7 @@ func handleVerify(w http.ResponseWriter, r *http.Request) {
 		u := session.TempUser
 		db.Exec("INSERT INTO users (username, email, password, telegram_chat_id) VALUES (?, ?, ?, ?)",
 			u.Username, u.Email, u.Password, u.TelegramID)
-		jsonResponse(w, map[string]string{"message": "Success"})
+		jsonResponse(w, map[string]string{"message": "Регистрация успешна"})
 	} else {
 		token := makeToken(session.UserID, session.Username)
 		jsonResponse(w, map[string]string{"token": token})
@@ -350,26 +312,32 @@ func handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 	userID := r.Context().Value("userID").(int)
 
-	if len(strings.TrimSpace(req.Transcript)) < 1 {
-		httpError(w, "Empty transcript", 400)
+	if len(strings.TrimSpace(req.Transcript)) < 2 {
+		httpError(w, "Нет текста", 400)
 		return
 	}
 
+	if req.Duration <= 0 {
+		req.Duration = 1
+	}
+	wpm := int(math.Round(float64(len(strings.Fields(req.Transcript))) / req.Duration * 60))
+
 	prompt := fmt.Sprintf(`
-	Analyze this Russian speech: "%s"
-	Return raw JSON only:
-	{
-		"clarityScore": (0-100),
-		"fillerWords": ["list"],
-		"feedback": "string",
-		"tip": "string"
-	}`, req.Transcript)
+        Роль: Тренер по ораторскому искусству. Язык: Русский.
+        Текст: "%s"
+        Задача: Верни валидный JSON (без markdown):
+        {
+            "clarityScore": (0-100),
+            "fillerWords": ["слово1", "слово2"],
+            "feedback": "Похвала (1-2 предложение)",
+            "tip": "Совет (1-2 предложение)"
+        }`, req.Transcript)
 
 	ctx := context.Background()
 	resp, err := gemini.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
 		fmt.Println("[!] Gemini API Error:", err)
-		httpError(w, "AI Error", 500)
+		httpError(w, "Ошибка ИИ", 500)
 		return
 	}
 
@@ -377,35 +345,32 @@ func handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		part := resp.Candidates[0].Content.Parts[0]
 		text := fmt.Sprintf("%s", part)
 
-		start := strings.Index(text, "{")
-		end := strings.LastIndex(text, "}")
+		re := regexp.MustCompile("```json|```")
+		cleanJson := re.ReplaceAllString(text, "")
+		cleanJson = strings.TrimSpace(cleanJson)
 
-		if start != -1 && end != -1 {
-			cleanJson := text[start : end+1]
-
-			var result map[string]interface{}
-			if json.Unmarshal([]byte(cleanJson), &result) == nil {
-
-				if req.Duration <= 0 {
-					req.Duration = 1
-				}
-				wpm := int(math.Round(float64(len(strings.Fields(req.Transcript))) / req.Duration * 60))
-
-				clarity := int(result["clarityScore"].(float64))
-				fillers, _ := json.Marshal(result["fillerWords"])
-				feedback := result["feedback"].(string)
-				tip := result["tip"].(string)
-
-				db.Exec(`INSERT INTO speeches (user_id, transcript, clarity_score, pace_wpm, filler_words, feedback, tip) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-					userID, req.Transcript, clarity, wpm, string(fillers), feedback, tip)
-
-				result["pace"] = wpm
-				jsonResponse(w, result)
-				return
+		var result map[string]interface{}
+		if json.Unmarshal([]byte(cleanJson), &result) == nil {
+			clarity := 0
+			if val, ok := result["clarityScore"].(float64); ok {
+				clarity = int(val)
 			}
+
+			fillersData := result["fillerWords"]
+			fillers, _ := json.Marshal(fillersData)
+
+			feedback, _ := result["feedback"].(string)
+			tip, _ := result["tip"].(string)
+
+			db.Exec(`INSERT INTO speeches (user_id, transcript, clarity_score, pace_wpm, filler_words, feedback, tip) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				userID, req.Transcript, clarity, wpm, string(fillers), feedback, tip)
+
+			result["pace"] = wpm
+			jsonResponse(w, result)
+			return
 		}
 	}
-	httpError(w, "AI parsing failed", 500)
+	httpError(w, "Ошибка ИИ", 500)
 }
 
 func handleCompanion(w http.ResponseWriter, r *http.Request) {
@@ -425,8 +390,23 @@ func handleCompanion(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleHistory(w http.ResponseWriter, r *http.Request) {
-	uid := r.Context().Value("userID").(int)
-	rows, _ := db.Query("SELECT id, transcript, clarity_score, pace_wpm, filler_words, feedback, tip, created_at FROM speeches WHERE user_id = ? ORDER BY created_at DESC", uid)
+	userID := r.Context().Value("userID").(int)
+
+	if r.Method == "DELETE" {
+		_, err := db.Exec("DELETE FROM speeches WHERE user_id = ?", userID)
+		if err != nil {
+			httpError(w, "DB Error", 500)
+			return
+		}
+		jsonResponse(w, map[string]string{"msg": "Deleted"})
+		return
+	}
+
+	rows, err := db.Query("SELECT id, transcript, clarity_score, pace_wpm, filler_words, feedback, tip, created_at FROM speeches WHERE user_id = ? ORDER BY created_at DESC", userID)
+	if err != nil {
+		httpError(w, "DB Error", 500)
+		return
+	}
 	defer rows.Close()
 
 	res := []map[string]interface{}{}
@@ -436,10 +416,19 @@ func handleHistory(w http.ResponseWriter, r *http.Request) {
 		var dt time.Time
 		rows.Scan(&id, &tr, &cl, &pm, &fw, &fb, &tp, &dt)
 		var fwArr []string
-		json.Unmarshal([]byte(fw), &fwArr)
+		if err := json.Unmarshal([]byte(fw), &fwArr); err != nil {
+			fwArr = []string{}
+		}
+		
 		res = append(res, map[string]interface{}{
-			"id": id, "transcript": tr, "clarityScore": cl, "pace": pm,
-			"fillerWords": fwArr, "feedback": fb, "tip": tp, "date": dt,
+			"id":           id,
+			"transcript":   tr,
+			"clarityScore": cl,
+			"pace":         pm,
+			"fillerWords":  fwArr,
+			"feedback":     fb,
+			"tip":          tp,
+			"date":         dt,
 		})
 	}
 	jsonResponse(w, res)
@@ -449,7 +438,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		h := r.Header.Get("Authorization")
 		if !strings.HasPrefix(h, "Bearer ") {
-			httpError(w, "No token", 401)
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		token, err := jwt.Parse(strings.TrimPrefix(h, "Bearer "), func(t *jwt.Token) (interface{}, error) {
@@ -459,7 +448,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			ctx := context.WithValue(r.Context(), "userID", int(claims["id"].(float64)))
 			next(w, r.WithContext(ctx))
 		} else {
-			httpError(w, "Forbidden", 403)
+			w.WriteHeader(http.StatusForbidden)
 		}
 	}
 }
@@ -474,11 +463,14 @@ func makeToken(id int, name string) string {
 	return s
 }
 
-func sendTg(chatID int64, text string) bool {
+func sendTg(chatID int64, code, action string) bool {
 	if bot == nil {
 		return false
 	}
-	_, err := bot.Send(tgbotapi.NewMessage(chatID, text))
+	txt := fmt.Sprintf("🔐 <b>Orato AI</b>\n\nВаш код для %s: <code>%s</code>\n\nНикому не сообщайте его.", action, code)
+	msg := tgbotapi.NewMessage(chatID, txt)
+	msg.ParseMode = "HTML"
+	_, err := bot.Send(msg)
 	return err == nil
 }
 
