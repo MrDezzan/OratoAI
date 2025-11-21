@@ -25,6 +25,7 @@ var (
 
 func initDB() {
 	var err error
+	// Открываем подключение
 	db, err = sql.Open("sqlite", "./orato.db")
 	if err != nil {
 		log.Fatal("[!] DB Connection Error:", err)
@@ -53,6 +54,7 @@ func initDB() {
 		filler_words TEXT,
 		feedback TEXT,
 		tip TEXT,
+		metrics TEXT DEFAULT '{}',  -- <-- НОВАЯ КОЛОНКА ДЛЯ ДИАГРАММЫ
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY(user_id) REFERENCES users(id)
 	);`
@@ -61,6 +63,7 @@ func initDB() {
 	if err != nil {
 		log.Fatal("[!] DB Init Error:", err)
 	}
+	fmt.Println("[+] Database initialized successfully (Orato v2)")
 }
 
 func initTelegram() {

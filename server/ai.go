@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log" // <-- ДОБАВИЛ ИМПОРТ
 	"math"
 	"net/http"
 	"strings"
@@ -13,97 +14,105 @@ import (
 
 // --- ОБНОВЛЕННАЯ ФУНКЦИЯ АНАЛИЗА ---
 func handleAnalyze(w http.ResponseWriter, r *http.Request) {
-	// Используем встроенную структуру или глобальную, если есть в models.go
-	var req struct {
-		Transcript string  `json:"transcript"`
-		Duration   float64 `json:"durationSeconds"`
-	}
-	// Игнорируем ошибки декодирования, если вдруг пришли лишние поля
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	var req AnalyzeRequest 
+	json.NewDecoder(r.Body).Decode(&req)
 	
-	// Достаем ID из контекста (authMiddleware)
-	userID := r.Context().Value("userID").(int)
+	// Проверка на наличие ID в контексте
+	uidVal := r.Context().Value("userID")
+	if uidVal == nil {
+		httpError(w, "Unauthorized", 401)
+		return
+	}
+	uid := uidVal.(int)
 
 	if len(strings.TrimSpace(req.Transcript)) < 2 {
-		httpError(w, "Нет текста для анализа", 400)
+		httpError(w, "Нет текста", 400)
 		return
 	}
 
-	// Промпт один-в-один с JS для идентичных результатов
+	// Промпт с метриками
 	prompt := fmt.Sprintf(`
-	Роль: Тренер по ораторскому искусству. Язык: Русский.
-	Текст: "%s"
-	Задача: Верни валидный JSON (без markdown, строго формат JSON):
+	Роль: Судья по ораторскому мастерству. Язык: Русский.
+	Текст выступления: "%s"
+	
+	Задача: Оцени речь и верни СТРОГИЙ JSON (без Markdown).
+	
+	Структура JSON:
 	{
-		"clarityScore": (0-100),
+		"clarityScore": (0-100, общая оценка),
+		"metrics": {
+			"confidence": (0-100, уверенность),
+			"vocabulary": (0-100, богатство языка),
+			"structure": (0-100, логика),
+			"empathy": (0-100, эмоциональность),
+			"conciseness": (0-100, краткость)
+		},
 		"fillerWords": ["слово1", "слово2"],
-		"feedback": "Похвала (1-2 предложение, русский)",
-		"tip": "Совет (1-2 предложение, русский)"
+		"feedback": "Похвала (1-2 предл., русский)",
+		"tip": "Совет (1-2 предл., русский)"
 	}`, req.Transcript)
 
 	ctx := context.Background()
-	// Ставим 0.6 чтобы ответы были чуть более "творческими", но в рамках формата
-	gemini.SetTemperature(0.6) 
+	gemini.SetTemperature(0.5)
 	resp, err := gemini.GenerateContent(ctx, genai.Text(prompt))
 	
 	if err != nil {
-		fmt.Println("[!] Gemini API Error:", err)
+		log.Println("[!] Gemini Error:", err)
 		httpError(w, "Ошибка ИИ", 500)
 		return
 	}
 
 	if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
 		part := resp.Candidates[0].Content.Parts[0]
-		
-		// Получаем текст и приводим к строке (если вдруг интерфейс)
-		rawText := fmt.Sprintf("%s", part)
+		txt := fmt.Sprintf("%s", part)
 
-		// --- ЧИСТКА JSON БЕЗ REGEXP ---
-		// Ищем границы JSON-объекта
-		start := strings.Index(rawText, "{")
-		end := strings.LastIndex(rawText, "}")
-
-		if start != -1 && end != -1 {
-			cleanJson := rawText[start : end+1]
-			var result map[string]interface{}
+		// Очистка JSON (без regexp)
+		s, e := strings.Index(txt, "{"), strings.LastIndex(txt, "}")
+		if s != -1 && e != -1 {
+			cleanJson := txt[s : e+1]
 			
+			var result map[string]interface{}
 			if json.Unmarshal([]byte(cleanJson), &result) == nil {
-				// Расчет скорости речи (WPM)
+				
+				// 1. Расчет темпа (WPM)
 				if req.Duration <= 0 { req.Duration = 1 }
 				wpm := int(math.Round(float64(len(strings.Fields(req.Transcript))) / req.Duration * 60))
 
-				// Безопасное извлечение данных (защита от паники)
+				// 2. Извлечение полей
 				clarity := 0
-				if val, ok := result["clarityScore"].(float64); ok {
-					clarity = int(val)
+				if v, ok := result["clarityScore"].(float64); ok { clarity = int(v) }
+				
+				fwBytes, _ := json.Marshal(result["fillerWords"])
+				metricsBytes, _ := json.Marshal(result["metrics"]) 
+				
+				fb, _ := result["feedback"].(string)
+				tp, _ := result["tip"].(string)
+
+				// 3. Сохранение в БД
+				_, err := db.Exec(`INSERT INTO speeches (user_id, transcript, clarity_score, pace_wpm, filler_words, feedback, tip, metrics) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+					uid, req.Transcript, clarity, wpm, string(fwBytes), fb, tp, string(metricsBytes))
+				
+				if err != nil {
+					log.Println("[!] DB Save Error:", err)
 				}
 
-				fillersBytes, _ := json.Marshal(result["fillerWords"])
-				feedback, _ := result["feedback"].(string)
-				tip, _ := result["tip"].(string)
+				// 4. ГЕЙМИФИКАЦИЯ
+				// Мы используем имя processGamification, которое определим в отдельном файле
+				go processGamification(uid, clarity, wpm) 
 
-				// Сохранение в Историю
-				db.Exec(`INSERT INTO speeches (user_id, transcript, clarity_score, pace_wpm, filler_words, feedback, tip) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-					userID, req.Transcript, clarity, wpm, string(fillersBytes), feedback, tip)
-
-				// --- 🔥 ЗАПУСК ГЕЙМИФИКАЦИИ 🔥 ---
-				// Выполняем в горутине, чтобы пользователь не ждал завершения транзакции
-				go processGamification(userID, clarity, wpm)
-
-				// Возвращаем результат клиенту
 				result["pace"] = wpm
 				jsonResponse(w, result)
 				return
 			}
 		}
 	}
-	httpError(w, "Не удалось обработать ответ ИИ", 500)
+	httpError(w, "Format Error", 500)
 }
 
 func handleCompanion(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Message string `json:"message"`
-		Mode    string `json:"mode"` // ВАЖНО: Поле должно совпадать с тем, что шлет TS
+		Mode    string `json:"mode"`
 	}
 	
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
@@ -117,32 +126,17 @@ func handleCompanion(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Mode {
 	case "interview":
-		rolePrompt = `Роль: Строгий HR-менеджер.
-		Тон: Холодный, профессиональный, критичный.
-		Задача: Проводи собеседование. Задавай сложные вопросы. Указывай на слабые места кандидата.`
+		rolePrompt = `Роль: Строгий HR-менеджер. Тон: Холодный. Задача: Проводи собеседование.`
 		temp = 0.3 
 	case "debate":
-		rolePrompt = `Роль: Оппонент в жестких дебатах.
-		Тон: Напористый, логичный, провокационный.
-		Задача: Категорически не соглашайся с пользователем. Найди ошибку в его логике и разбей его аргументы. Твоя цель — победить в споре любой ценой.`
+		rolePrompt = `Роль: Оппонент в дебатах. Тон: Напористый. Задача: Спорь и опровергай.`
 		temp = 0.9
 	default: 
-		rolePrompt = `Роль: Дружелюбный наставник.
-		Тон: Теплый, мягкий, поддерживающий.
-		Задача: Поддерживай беседу, хвали пользователя, помогай ему раскрыться.`
+		rolePrompt = `Роль: Дружелюбный наставник. Тон: Теплый. Задача: Поддерживай беседу.`
 		temp = 0.7
 	}
 
-	prompt := fmt.Sprintf(`
-		%s
-		
-		Язык: Русский.
-		Входные данные: Пользователь сказал: "%s"
-		
-		Твоя инструкция: 
-		1. Дай краткий ответ (максимум 2-3 предложения), исходя из своей роли.
-		2. Не используй markdown (*, #), эмодзи или списки. Нужен чистый текст для озвучки.
-		3. В конце задай короткий вопрос, чтобы продолжить диалог.`, rolePrompt, req.Message)
+	prompt := fmt.Sprintf(`%s Язык: Русский. Ответь кратко (1-3 предл). Пользователь: "%s"`, rolePrompt, req.Message)
 
 	gemini.SetTemperature(temp)
 	resp, err := gemini.GenerateContent(ctx, genai.Text(prompt))

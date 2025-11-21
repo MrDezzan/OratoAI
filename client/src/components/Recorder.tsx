@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useTransition } from 'react';
-// Добавляем иконки Dices (Кубики) и Refresh (Обновить)
+// Иконки
 import { Mic, StopCircle, Loader2, CheckCircle2, Sparkles, ChevronDown, Dices } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { analyzeSpeech, AnalysisData } from '../api';
 import { AxiosError } from 'axios';
-import { TOPICS } from '../topics'; // <-- ИМПОРТИРУЕМ ТЕМЫ
+import { TOPICS } from '../topics'; 
+// Импортируем компонент графика (убедись, что ты создал файл RadarChartSkill.tsx)
+import RadarChartSkill from './RadarChartSkill'; 
 
 interface ISpeechRecognition extends EventTarget {
   continuous: boolean;
@@ -30,7 +32,6 @@ const Recorder = () => {
   const [timer, setTimer] = useState(0);
   const [showFillers, setShowFillers] = useState(false);
   
-  // --- НОВЫЙ СТЕЙТ ДЛЯ ТЕМЫ ---
   const [currentTopic, setCurrentTopic] = useState<string | null>(null);
   
   const [isPending, startTransition] = useTransition();
@@ -38,11 +39,9 @@ const Recorder = () => {
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // --- НОВАЯ ФУНКЦИЯ: Генератор ---
   const generateTopic = () => {
     const random = TOPICS[Math.floor(Math.random() * TOPICS.length)];
     setCurrentTopic(random);
-    // Если уже есть анализ, сбрасываем его, чтобы начать новую тренировку
     if (analysis) setAnalysis(null); 
     setTranscript('');
   };
@@ -67,14 +66,13 @@ const Recorder = () => {
       };
 
       recognition.onerror = (event: any) => {
-        console.error("Speech Error:", event.error);
         if (event.error === 'not-allowed') {
             toast.error('Доступ к микрофону запрещен!');
         }
       };
       recognitionRef.current = recognition;
     } else {
-        toast.error('Ваш браузер не поддерживает Speech API 😢');
+        toast.error('Браузер не поддерживает речь 😢');
     }
 
     return () => {
@@ -106,7 +104,7 @@ const Recorder = () => {
   const handleAnalysis = () => {
       const textToAnalyze = transcriptRef.current;
       if (!textToAnalyze || textToAnalyze.trim().length === 0) {
-          toast('Я ничего не услышал. Попробуйте громче! 🎤', { icon: '🤔' });
+          toast('Я ничего не услышал. Попробуйте громче!', { icon: '🤔' });
           return;
       }
       startTransition(async () => {
@@ -128,10 +126,9 @@ const Recorder = () => {
       <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
         <h1>Тренировка Речи</h1>
         <p style={{ color: 'var(--text-muted)' }}>
-            Нажмите кнопку ниже, чтобы получить случайную тему, или говорите свободно.
+            Нажмите кнопку, чтобы получить случайную тему, или говорите свободно.
         </p>
         
-        {/* --- НОВАЯ КНОПКА ГЕНЕРАЦИИ --- */}
         <div style={{ marginTop: '1.5rem' }}>
             {currentTopic ? (
                 <div className="card" style={{ display: 'inline-flex', flexDirection: 'column', padding: '1.5rem', maxWidth: '600px', animation: 'fadeIn 0.5s' }}>
@@ -151,7 +148,6 @@ const Recorder = () => {
                 </button>
             )}
         </div>
-
       </div>
 
       <div className="card" style={{ textAlign: 'center', marginBottom: '2rem' }}>
@@ -181,11 +177,21 @@ const Recorder = () => {
 
       {analysis && (
         <div className="card result-section">
+          
           <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
             <div className="score-circle">
               <div className="score-value">{analysis.clarityScore}</div>
               <div className="score-label">Баллов</div>
             </div>
+            
+            {/* --- 💎 ГРАФИК НАВЫКОВ 💎 --- */}
+            {analysis.metrics && (
+                <div style={{ maxWidth: '500px', margin: '0 auto 2rem' }}>
+                    <h3 style={{fontSize:'0.9rem', color:'var(--text-muted)', marginBottom:'10px', textTransform:'uppercase'}}>Карта Навыков</h3>
+                    <RadarChartSkill metrics={analysis.metrics} />
+                </div>
+            )}
+
             <h2 style={{ margin: 0 }}>Анализ завершен <Sparkles size={24} color="var(--accent)"/></h2>
           </div>
 

@@ -30,6 +30,14 @@ export interface VerifyRequest {
   code: string;
 }
 
+export interface AnalysisMetrics {
+  confidence: number;
+  vocabulary: number;
+  structure: number;
+  empathy: number;
+  conciseness: number;
+}
+
 // Результат анализа речи (совпадает с JSON от Gemini + Pace из Go)
 export interface AnalysisData {
   clarityScore: number;
@@ -38,6 +46,7 @@ export interface AnalysisData {
   feedback: string;
   tip: string;
   transcript?: string; // В истории есть, при анализе сразу может не быть в ответе, но полезно знать
+  metrics?: AnalysisMetrics;
 }
 
 // Элемент истории (наследует анализ + добавляет ID и Дату)
