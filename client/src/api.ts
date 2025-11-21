@@ -51,6 +51,16 @@ export interface CompanionResponse {
   reply: string;
 }
 
+export interface UserProfile {
+  username: string;
+  xp: number;
+  level: number;
+  nextLvlXp: number; // Максимум XP для текущего уровня (для прогресс бара)
+  streak: number;
+  badges: string[];  // Массив ID бейджей, например ["clean_speaker", "level_5"]
+  title: string;     // Звание (Новичок, Легенда)
+}
+
 // --- 2. Настройка Axios ---
 
 export const api = axios.create({
@@ -97,4 +107,8 @@ export const clearHistory = async () => {
 
 export const chatWithCompanion = async (message: string, mode: string = 'mentor') => {
   return api.post<CompanionResponse>('/companion/chat', { message, mode });
+};
+
+export const getProfile = async () => {
+  return api.get<UserProfile>('/profile'); 
 };

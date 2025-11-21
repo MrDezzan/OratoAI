@@ -50,3 +50,26 @@ func handleHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonResponse(w, res)
 }
+
+func handleGetProfile(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("userID").(int)
+
+	var u UserProfile
+	var badgesStr string
+
+	err := db.QueryRow(`SELECT username, xp, level, streak, badges FROM users WHERE id=?`, userID).
+		Scan(&u.Username, &u.XP, &u.Level, &u.Streak, &badgesStr)
+
+	if err != nil {
+		httpError(w, "User stats not found", 404)
+		return
+	}
+
+	if badgesStr == "" { badgesStr = "[]" }
+	json.Unmarshal([]byte(badgesStr), &u.Badges)
+
+	u.NextLvlXP = u.Level * 1000
+	u.Title = getTitleByLevel(u.Level) // Функция из gamification.go
+
+	jsonResponse(w, u)
+}

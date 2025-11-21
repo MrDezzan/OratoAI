@@ -7,42 +7,45 @@ import (
 	"math"
 	"net/http"
 	"strings"
-	"regexp"
 
 	"github.com/google/generative-ai-go/genai"
 )
 
+// --- ОБНОВЛЕННАЯ ФУНКЦИЯ АНАЛИЗА ---
 func handleAnalyze(w http.ResponseWriter, r *http.Request) {
+	// Используем встроенную структуру или глобальную, если есть в models.go
 	var req struct {
 		Transcript string  `json:"transcript"`
 		Duration   float64 `json:"durationSeconds"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	// Игнорируем ошибки декодирования, если вдруг пришли лишние поля
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	
+	// Достаем ID из контекста (authMiddleware)
 	userID := r.Context().Value("userID").(int)
 
 	if len(strings.TrimSpace(req.Transcript)) < 2 {
-		httpError(w, "Нет текста", 400)
+		httpError(w, "Нет текста для анализа", 400)
 		return
 	}
 
-	if req.Duration <= 0 {
-		req.Duration = 1
-	}
-	wpm := int(math.Round(float64(len(strings.Fields(req.Transcript))) / req.Duration * 60))
-
+	// Промпт один-в-один с JS для идентичных результатов
 	prompt := fmt.Sprintf(`
-        Роль: Тренер по ораторскому искусству. Язык: Русский.
-        Текст: "%s"
-        Задача: Верни валидный JSON (без markdown):
-        {
-            "clarityScore": (0-100),
-            "fillerWords": ["слово1", "слово2"],
-            "feedback": "Похвала (1-2 предложение)",
-            "tip": "Совет (1-2 предложение)"
-        }`, req.Transcript)
+	Роль: Тренер по ораторскому искусству. Язык: Русский.
+	Текст: "%s"
+	Задача: Верни валидный JSON (без markdown, строго формат JSON):
+	{
+		"clarityScore": (0-100),
+		"fillerWords": ["слово1", "слово2"],
+		"feedback": "Похвала (1-2 предложение, русский)",
+		"tip": "Совет (1-2 предложение, русский)"
+	}`, req.Transcript)
 
 	ctx := context.Background()
+	// Ставим 0.6 чтобы ответы были чуть более "творческими", но в рамках формата
+	gemini.SetTemperature(0.6) 
 	resp, err := gemini.GenerateContent(ctx, genai.Text(prompt))
+	
 	if err != nil {
 		fmt.Println("[!] Gemini API Error:", err)
 		httpError(w, "Ошибка ИИ", 500)
@@ -51,34 +54,50 @@ func handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
 		part := resp.Candidates[0].Content.Parts[0]
-		text := fmt.Sprintf("%s", part)
+		
+		// Получаем текст и приводим к строке (если вдруг интерфейс)
+		rawText := fmt.Sprintf("%s", part)
 
-		re := regexp.MustCompile("```json|```")
-		cleanJson := re.ReplaceAllString(text, "")
-		cleanJson = strings.TrimSpace(cleanJson)
+		// --- ЧИСТКА JSON БЕЗ REGEXP ---
+		// Ищем границы JSON-объекта
+		start := strings.Index(rawText, "{")
+		end := strings.LastIndex(rawText, "}")
 
-		var result map[string]interface{}
-		if json.Unmarshal([]byte(cleanJson), &result) == nil {
-			clarity := 0
-			if val, ok := result["clarityScore"].(float64); ok {
-				clarity = int(val)
+		if start != -1 && end != -1 {
+			cleanJson := rawText[start : end+1]
+			var result map[string]interface{}
+			
+			if json.Unmarshal([]byte(cleanJson), &result) == nil {
+				// Расчет скорости речи (WPM)
+				if req.Duration <= 0 { req.Duration = 1 }
+				wpm := int(math.Round(float64(len(strings.Fields(req.Transcript))) / req.Duration * 60))
+
+				// Безопасное извлечение данных (защита от паники)
+				clarity := 0
+				if val, ok := result["clarityScore"].(float64); ok {
+					clarity = int(val)
+				}
+
+				fillersBytes, _ := json.Marshal(result["fillerWords"])
+				feedback, _ := result["feedback"].(string)
+				tip, _ := result["tip"].(string)
+
+				// Сохранение в Историю
+				db.Exec(`INSERT INTO speeches (user_id, transcript, clarity_score, pace_wpm, filler_words, feedback, tip) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+					userID, req.Transcript, clarity, wpm, string(fillersBytes), feedback, tip)
+
+				// --- 🔥 ЗАПУСК ГЕЙМИФИКАЦИИ 🔥 ---
+				// Выполняем в горутине, чтобы пользователь не ждал завершения транзакции
+				go processGamification(userID, clarity, wpm)
+
+				// Возвращаем результат клиенту
+				result["pace"] = wpm
+				jsonResponse(w, result)
+				return
 			}
-
-			fillersData := result["fillerWords"]
-			fillers, _ := json.Marshal(fillersData)
-
-			feedback, _ := result["feedback"].(string)
-			tip, _ := result["tip"].(string)
-
-			db.Exec(`INSERT INTO speeches (user_id, transcript, clarity_score, pace_wpm, filler_words, feedback, tip) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				userID, req.Transcript, clarity, wpm, string(fillers), feedback, tip)
-
-			result["pace"] = wpm
-			jsonResponse(w, result)
-			return
 		}
 	}
-	httpError(w, "Ошибка ИИ", 500)
+	httpError(w, "Не удалось обработать ответ ИИ", 500)
 }
 
 func handleCompanion(w http.ResponseWriter, r *http.Request) {

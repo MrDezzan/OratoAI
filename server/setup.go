@@ -36,7 +36,13 @@ func initDB() {
 		username TEXT,
 		email TEXT UNIQUE,
 		password TEXT,
-		telegram_chat_id TEXT
+		telegram_chat_id TEXT,
+		-- Геймификация --
+		xp INTEGER DEFAULT 0,
+		level INTEGER DEFAULT 1,
+		streak INTEGER DEFAULT 0,
+		last_active DATE,         -- Дата последней тренировки
+		badges TEXT DEFAULT '[]'  -- Храним JSON массив: ["streak_5", "expert"]
 	);
 	CREATE TABLE IF NOT EXISTS speeches (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,

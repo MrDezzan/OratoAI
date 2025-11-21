@@ -2,6 +2,16 @@ package main
 
 import "time"
 
+type UserProfile struct {
+	Username  string   `json:"username"`
+	XP        int      `json:"xp"`
+	Level     int      `json:"level"`
+	Streak    int      `json:"streak"`
+	Badges    []string `json:"badges"`
+	NextLvlXP int      `json:"nextLvlXp"` 
+	Title     string   `json:"title"`     
+}
+
 type OtpSession struct {
 	Code      string
 	Attempts  int
