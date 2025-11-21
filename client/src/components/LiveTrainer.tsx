@@ -9,27 +9,22 @@ type ModeType = 'mentor' | 'interview' | 'debate';
 const LiveTrainer = () => {
   const [status, setStatus] = useState<'IDLE' | 'LISTENING' | 'THINKING' | 'SPEAKING'>('IDLE');
   const [lastPhrase, setLastPhrase] = useState("Выберите режим и нажмите микрофон.");
-  
-  // Стейт для UI
   const [mode, setMode] = useState<ModeType>('mentor');
   
-  // --- ИСПРАВЛЕНИЕ: REF ДЛЯ АКТУАЛЬНОГО РЕЖИМА ---
-  // Мы дублируем режим в ref, чтобы микрофон всегда видел свежее значение
-  const modeRef = useRef<ModeType>('mentor');
+  // Ключи из .env
+  const ELEVEN_KEY = import.meta.env.VITE_ELEVEN_API_KEY;
+  const VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // Rachel (Стандартный, 100% работает)
 
-  // Синхронизируем Ref с состоянием при каждом клике
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
-
-  const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
+  // Ссылки
+  const audioRef = useRef<HTMLAudioElement | null>(null); // Для MP3
   const recognitionRef = useRef<any>(null);
+  const modeRef = useRef<ModeType>('mentor'); // Хак для замыкания
+
+  // Обновляем ref при смене режима
+  useEffect(() => { modeRef.current = mode; }, [mode]);
 
   useEffect(() => {
-    const loadVoices = () => window.speechSynthesis.getVoices();
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-
+    // Инициализация распознавания речи (как и раньше)
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       recognitionRef.current = new SpeechRecognition();
@@ -44,7 +39,7 @@ const LiveTrainer = () => {
       recognitionRef.current.onerror = (e: any) => {
         if (e.error !== 'no-speech') {
            setStatus('IDLE');
-           toast.error('Не расслышал...');
+           toast.error('Не удалось распознать...');
         }
       };
 
@@ -52,93 +47,113 @@ const LiveTrainer = () => {
         if (status === 'LISTENING') setStatus('IDLE');
       };
     }
-
-    return () => {
-       window.speechSynthesis.cancel();
-    }
   }, []);
 
+  // --- УПРАВЛЕНИЕ СЕССИЕЙ ---
+  
   const startSession = () => {
-    window.speechSynthesis.cancel();
+    stopAudio(); // Сброс звука
     setStatus('LISTENING');
     setLastPhrase("Слушаю...");
     try { recognitionRef.current?.start(); } catch {}
   };
 
   const stopSession = () => {
-    window.speechSynthesis.cancel();
+    stopAudio();
     recognitionRef.current?.stop();
     setStatus('IDLE');
   };
+
+  const stopAudio = () => {
+    if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+    }
+  };
+
+  // --- ОБРАБОТКА СООБЩЕНИЯ ---
 
   const handleSend = async (text: string) => {
     setStatus('THINKING');
     setLastPhrase(`Вы: "${text}"`);
 
     try {
-      // --- ИСПРАВЛЕНИЕ: БЕРЕМ РЕЖИМ ИЗ REF ---
-      // Теперь мы читаем modeRef.current, который всегда свежий
-      const currentMode = modeRef.current;
-      console.log("Sending request with mode:", currentMode); // Проверка в консоли браузера
+      // 1. Идем к Gemini за текстом ответа
+      const res = await chatWithCompanion(text, modeRef.current);
+      const replyText = res.data.reply;
+      
+      setLastPhrase(replyText);
+      
+      // 2. Идем к ElevenLabs за звуком (ОЗВУЧКА)
+      await streamAudioFromEleven(replyText);
 
-      const res = await chatWithCompanion(text, currentMode);
-      const reply = res.data.reply;
-      setLastPhrase(reply);
-      speak(reply);
     } catch (e) {
+      console.error(e);
       setStatus('IDLE');
-      toast.error('Сбой связи с ИИ');
+      toast.error('Сбой ИИ или Сети');
     }
   };
 
-  const speak = (text: string) => {
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    synthRef.current = utterance;
-    
-    utterance.lang = 'ru-RU';
-    utterance.volume = 1;
-
-    // Читаем актуальный режим для настроек голоса тоже из Ref
-    const currentMode = modeRef.current;
-
-    if (currentMode === 'interview') {
-        utterance.rate = 0.9; 
-        utterance.pitch = 0.8; 
-    } else if (currentMode === 'debate') {
-        utterance.rate = 1.15; 
-        utterance.pitch = 1.0;
-    } else {
-        utterance.rate = 1.05;
-        utterance.pitch = 1.0;
+  // --- ELEVEN LABS TTS ---
+  const streamAudioFromEleven = async (text: string) => {
+    if (!ELEVEN_KEY) {
+        toast.error("Нет API ключа ElevenLabs");
+        setStatus('IDLE');
+        return;
     }
 
-    const voices = window.speechSynthesis.getVoices();
-    const ruVoices = voices.filter(v => v.lang.includes('ru'));
-    
-    let voice = ruVoices.find(v => v.name.includes('Google')); 
-    if (!voice) voice = ruVoices.find(v => v.name.includes('Milena') || v.name.includes('Yuri')); 
-    if (!voice) voice = ruVoices[0]; 
-    
-    if (voice) utterance.voice = voice;
+    try {
+        // Запрос к API ElevenLabs
+        const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
+            method: 'POST',
+            headers: {
+                'xi-api-key': ELEVEN_KEY,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                text: text,
+                model_id: "eleven_multilingual_v2", // <--- ВАЖНО ДЛЯ РУССКОГО
+                voice_settings: {
+                    stability: 0.5,       // Экспрессия (ниже - больше эмоций)
+                    similarity_boost: 0.8 // Похожесть голоса
+                }
+            })
+        });
 
-    utterance.onstart = () => setStatus('SPEAKING');
-    utterance.onend = () => setStatus('IDLE');
-    utterance.onerror = () => setStatus('IDLE');
+        if (!response.ok) throw new Error("ElevenLabs API Error");
 
-    window.speechSynthesis.speak(utterance);
+        // Получаем аудио-файл (Blob)
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        const audio = new Audio(audioUrl);
+        audioRef.current = audio;
+
+        // Запуск визуализации
+        audio.onplay = () => setStatus('SPEAKING');
+        audio.onended = () => setStatus('IDLE');
+        
+        // Запуск звука
+        audio.play();
+
+    } catch (err) {
+        console.error("TTS Error:", err);
+        toast.error("Не удалось озвучить текст");
+        setStatus('IDLE');
+    }
   };
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '75vh', gap: '2rem' }}>
       
+      {/* Выбор режима */}
       <div style={{ display: 'flex', gap: '8px', background: 'rgba(255,255,255,0.05)', padding: '6px', borderRadius: '16px', marginBottom:'1rem' }}>
           <ModeBtn label="Ментор" active={mode === 'mentor'} onClick={() => setMode('mentor')} color="#10b981" icon={<HeartHandshake size={16}/>} />
           <ModeBtn label="Интервью" active={mode === 'interview'} onClick={() => setMode('interview')} color="#8b5cf6" icon={<Briefcase size={16}/>} />
           <ModeBtn label="Дебаты" active={mode === 'debate'} onClick={() => setMode('debate')} color="#f43f5e" icon={<Swords size={16}/>} />
       </div>
 
+      {/* Визуал Эквалайзер */}
       <div style={{ height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {status === 'IDLE' && <Activity size={64} color="var(--text-muted)" style={{opacity:0.3}} />}
         {status === 'LISTENING' && <div className="pulse-mic"><Mic size={64} color="var(--primary)" /></div>}
@@ -150,6 +165,7 @@ const LiveTrainer = () => {
         )}
       </div>
 
+      {/* Блок текста */}
       <div className="card" style={{ 
           minWidth: '300px', maxWidth: '650px', minHeight: '120px', 
           display:'flex', alignItems:'center', justifyContent:'center',
@@ -161,11 +177,9 @@ const LiveTrainer = () => {
           <p style={{ margin: 0 }}>{lastPhrase}</p>
       </div>
 
+      {/* Кнопки */}
       {status === 'IDLE' ? (
-        <button onClick={startSession} className="btn btn-primary" style={{
-            borderRadius: '50px', padding: '1rem 3.5rem', fontSize:'1.2rem', 
-            background: `linear-gradient(135deg, ${getColor(mode)}, #111)`
-        }}>
+        <button onClick={startSession} className="btn btn-primary" style={{borderRadius: '50px', padding: '1rem 3.5rem', fontSize:'1.2rem', background: `linear-gradient(135deg, ${getColor(mode)}, #111)`}}>
           <Mic size={24} /> Начать
         </button>
       ) : (
@@ -177,18 +191,14 @@ const LiveTrainer = () => {
   );
 };
 
-// UI Helpers
+// Helper Styles
 const ModeBtn = ({label, active, onClick, color, icon}: any) => (
     <button onClick={onClick} style={{
-        background: active ? color : 'transparent',
-        color: active ? 'white' : 'var(--text-muted)',
+        background: active ? color : 'transparent', color: active ? 'white' : 'var(--text-muted)',
         border: 'none', padding: '0.6rem 1rem', borderRadius: '10px',
         cursor: 'pointer', display:'flex', gap:'6px', alignItems:'center', fontWeight:'bold', fontSize:'0.9rem',
-        transition: 'all 0.2s',
-        boxShadow: active ? `0 0 15px ${color}66` : 'none'
-    }}>
-        {icon} {label}
-    </button>
+        transition: 'all 0.2s', boxShadow: active ? `0 0 15px ${color}66` : 'none'
+    }}> {icon} {label} </button>
 )
 
 const getColor = (mode: string, alpha = 1) => {
